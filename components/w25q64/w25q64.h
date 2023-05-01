@@ -45,9 +45,9 @@ typedef struct {
 	spi_device_handle_t _SPIHandle;
 } W25Q64_t;
 
-
 void W25Q64_dump(char *id, int ret, uint8_t *data, int len);
 void W25Q64_init(W25Q64_t * dev);
+int16_t W25Q32_initLogging(W25Q64_t *dev, uint8_t *modemID);
 esp_err_t W25Q64_readStatusReg1(W25Q64_t * dev, uint8_t * reg1);
 esp_err_t W25Q64_readStatusReg2(W25Q64_t * dev, uint8_t * reg2);
 esp_err_t W25Q64_readUniqieID(W25Q64_t * dev, uint8_t * id);
@@ -62,7 +62,12 @@ bool W25Q64_eraseSector(W25Q64_t * dev, uint16_t sect_no, bool flgwait);
 bool W25Q64_erase64Block(W25Q64_t * dev, uint16_t blk_no, bool flgwait);
 bool W25Q64_erase32Block(W25Q64_t * dev, uint16_t blk_no, bool flgwait);
 bool W25Q64_eraseAll(W25Q64_t * dev, bool flgwait);
+void W25Q32_readLast(uint8_t* buf, uint16_t *sect_no, uint16_t *inaddr, uint32_t *modemID);
+void W25Q32_readData(W25Q64_t * dev, uint32_t addr, uint8_t *data_buf, uint16_t n, uint16_t *count, uint32_t *modem, uint32_t *time);
+void TagAlongPayload(uint8_t * data, int16_t empty_0, uint16_t count, uint32_t modem, int empty_1, uint32_t time);
 int16_t W25Q64_pageWrite(W25Q64_t * dev, uint16_t sect_no, uint16_t inaddr, uint8_t* buf, int16_t n);
+int16_t W25Q32_writeNextAddr(W25Q64_t * dev, uint16_t sect_no, uint16_t inaddr, uint32_t modemID, bool curr_next);
+int16_t W25Q32_writePayload(W25Q64_t *dev, uint8_t *buf, int16_t n);
+void TagAlongReadMemory(W25Q64_t * dev);
 
 #endif /* MAIN_W25Q64_H_ */
-

@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdint.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -11,6 +12,13 @@
 
 #define TAG "W25Q64"
 #define _DEBUG_	0
+
+#define CONFIG_GPIO_RANGE_MAX 33
+#define CONFIG_MISO_GPIO 19
+#define CONFIG_MOSI_GPIO 23
+#define CONFIG_SCLK_GPIO 18
+#define CONFIG_CS_GPIO 5
+#define CONFIG_SPI2_HOST 1
 
 // SPI Stuff
 #if CONFIG_SPI2_HOST
@@ -539,3 +547,267 @@ int16_t W25Q64_pageWrite(W25Q64_t * dev, uint16_t sect_no, uint16_t inaddr, uint
 	return n;
 }
 
+// init ESP32 logging
+// sector/inaddr number 0 is reserved specifically for the last written address
+// init sect_no = 1 (2 bytes)
+// init inaddr = 0 (2 bytes)
+// record modemID (4 bytes)
+int16_t W25Q32_initLogging(W25Q64_t * dev, uint8_t * modemID){
+	uint16_t sect_no = 1;
+	uint16_t inaddr = 0;
+	uint16_t n = 8; //data is going to be 8 bytes long
+
+	uint8_t data[8];
+	uint8_t buf[2];
+
+	memset(buf, 0, 2);
+	memcpy(buf, &sect_no, 2);
+
+	data[0] = buf[1];
+	data[1] = buf[0];
+
+	memset(buf, 0, 2);
+	memcpy(buf, &inaddr, 2);
+
+	data[2] = buf[1];
+	data[3] = buf[0];
+
+	data[4] = modemID[3];
+	data[5] = modemID[2];
+	data[6] = modemID[1];
+	data[7] = modemID[0];
+
+
+	int16_t write_result = W25Q64_pageWrite(dev, 0, 0, data, n);
+	return write_result; //if 0 then error?
+}
+
+// "erase" is an 8-byte array that needs to erase the first 8 bytes (make all f's) in order to write to it
+int16_t W25Q32_writeNextAddr(W25Q64_t * dev, uint16_t sect_no, uint16_t inaddr, uint32_t modemID, bool curr_next){
+	// ESP_LOGI(TAG, "Next sect_no: %d", sect_no);
+	// ESP_LOGI(TAG, "Next inaddr: %d", inaddr);
+	
+	uint8_t data[8];
+	uint8_t buf[4];
+
+	memset(buf, 0, 2);
+	memcpy(buf, &sect_no, 2);
+
+	data[0] = buf[1];
+	data[1] = buf[0];
+
+	memset(buf, 0, 2);
+	memcpy(buf, &inaddr, 2);
+
+	data[2] = buf[1];
+	data[3] = buf[0];
+
+	memset(buf, 0, 2);
+	memcpy(buf, &modemID, 4);
+
+	data[4] = buf[3];
+	data[5] = buf[2];
+	data[6] = buf[1];
+	data[7] = buf[0];
+
+	// if true, write next address
+	// if false, write curr address
+	int write_result;
+	if(curr_next == true){
+		write_result = W25Q64_pageWrite(dev, 0, 0, data, 8);
+	}
+
+	if(curr_next == false){
+		write_result = W25Q64_pageWrite(dev, 0, 16, data, 8);
+	}
+	
+	return write_result;
+
+}
+
+// read last address written to
+// takes in the buffer and the references to sect_no, inaddr
+void W25Q32_readLast(uint8_t* buf, uint16_t *sect_no, uint16_t *inaddr, uint32_t *read_modemID){
+	*sect_no = buf[0];
+	*sect_no <<= 8;
+	*sect_no += buf[1];
+
+	*inaddr = buf[2];
+	*inaddr <<= 8;
+	*inaddr += buf[3];
+
+	*read_modemID = buf[4];
+	*read_modemID <<= 8;
+	*read_modemID += buf[5];
+	*read_modemID <<= 8;
+	*read_modemID += buf[6];
+	*read_modemID <<= 8;
+	*read_modemID += buf[7];
+}
+
+void TagAlongPayload(uint8_t * data, int16_t empty_0, uint16_t count, uint32_t modem, int empty_1, uint32_t time){
+	uint8_t buf[4];
+
+	memset(buf, 0, 2);
+	memcpy(buf, &empty_0, 2);
+
+	data[0] = buf[1];
+	data[1] = buf[0];
+
+	memset(buf, 0, 2);
+	memcpy(buf, &count, 2);
+	data[2] = buf[1];
+	data[3] = buf[0];
+
+	memset(buf, 0, 2);
+	memcpy(buf, &modem, 4);
+
+	data[4] = buf[3];
+	data[5] = buf[2];
+	data[6] = buf[1];
+	data[7] = buf[0];
+
+	memset(buf, 0, 4);
+	memcpy(buf, &empty_1, 4);
+
+	data[8] = buf[3];
+	data[9] = buf[2];
+	data[10] = buf[1];
+	data[11] = buf[0];
+
+	memset(buf, 0, 4);
+	memcpy(buf, &time, 4);
+
+	data[12] = buf[3];
+	data[13] = buf[2];
+	data[14] = buf[1];
+	data[15] = buf[0];
+}
+
+void W25Q32_readData(W25Q64_t * dev, uint32_t addr, uint8_t *data_buf, uint16_t n, uint16_t *count, uint32_t *modem, uint32_t *time){
+	memset(data_buf, 0, n);
+	W25Q64_read(dev, addr, data_buf, n);
+
+	// empty_0
+	// *data_buf[0];
+	// *data_buf[1];
+
+	// count
+	*count = data_buf[2];
+	*count <<= 8;
+	*count += data_buf[3];
+
+	// modem_id
+	*modem = data_buf[4];
+	*modem <<= 8;
+	*modem += data_buf[5];
+	*modem <<= 8;
+	*modem += data_buf[6];
+	*modem <<= 8;
+	*modem += data_buf[7];
+
+
+	// empty_1
+	// *data_buf[8];
+	// *data_buf[9];
+	// *data_buf[10];
+	// *data_buf[11];
+
+	// time
+	*time = data_buf[12];
+	*time <<= 8;
+	*time += data_buf[13];
+	*time <<= 8;
+	*time += data_buf[14];
+	*time <<= 8;
+	*time += data_buf[15];
+
+	printf("%u,%x,%u\n",*count,*modem,*time);
+}
+
+//
+// Page write --> double check address range
+// sect_no(in):Sector number(0x00 - 0x3FF) 
+// inaddr(in):In-sector address(0x00-0xFFF)
+// data(in):Write data
+// n(in):Number of bytes to write(0～256)
+//
+int16_t W25Q32_writePayload(W25Q64_t *dev, uint8_t *buf, int16_t n)
+{
+	uint16_t sect_no, inaddr;
+	uint32_t modemID;
+	uint8_t addr_buf[8];
+
+	memset(addr_buf, 0, 8);
+	W25Q64_read(dev, 0, addr_buf, 8);
+	W25Q32_readLast(addr_buf, &sect_no, &inaddr, &modemID); // get the address to write at
+
+	printf("Section num: %u\n", sect_no);
+	printf("inaddr: %u\n", inaddr);
+	printf("ModemID: %x\n", modemID);
+	printf("\n");
+
+	if (n > 256) return 0;
+	if (sect_no == 1047) return 0; // DOUBLE CHECK THIS
+
+	// at this point, sect_no and inaddr should all be correct to write at
+
+	spi_transaction_t SPITransaction;
+	uint8_t *data;
+
+	// inaddr is 12 bytes max, so shift 12 bytes
+	uint32_t addr = sect_no;
+	addr<<=12;
+	addr += inaddr;
+
+	// write the last written address here at sect_no 0, inaddr 16
+	int16_t write_result = W25Q32_writeNextAddr(dev, sect_no, inaddr, modemID, false);
+	if(write_result != 8){
+		printf("writeNextAddr failed!\n");
+	}
+
+	// checking if this is going beyond the inaddr address
+	inaddr += n;
+	// inaddr overflow; increment sect_no
+	if (inaddr >= 4095){
+		sect_no++;
+		inaddr = 0;
+	}
+
+	W25Q64_eraseSector(dev, 0, true);
+
+	//write new addr
+	write_result = W25Q32_writeNextAddr(dev, sect_no, inaddr, modemID, true);
+	if(write_result != 8){
+		printf("writeNextAddr failed!\n");
+	}
+
+	// Write permission setting
+	esp_err_t ret;
+	ret = W25Q64_WriteEnable(dev);
+	if (ret != ESP_OK) return 0;
+
+	// Busy check
+	if (W25Q64_IsBusy(dev)) return 0;  
+
+	data = (unsigned char*)malloc(n+4);
+	data[0] = CMD_PAGE_PROGRAM;
+	data[1] = (addr>>16) & 0xff;
+	data[2] = (addr>>8) & 0xff;
+	data[3] = addr & 0xFF;
+	memcpy( &data[4], buf, n );
+	memset( &SPITransaction, 0, sizeof( spi_transaction_t ) );
+	SPITransaction.length = (n+4) * 8;
+	SPITransaction.tx_buffer = data;
+	SPITransaction.rx_buffer = data;
+	ret = spi_device_transmit( dev->_SPIHandle, &SPITransaction );
+	free(data);
+	assert(ret==ESP_OK);
+	if (ret != ESP_OK) return 0;
+
+	// Busy check
+	while( W25Q64_IsBusy(dev) ) {
+		vTaskDelay(1);
+	}
+	return n;
+}
