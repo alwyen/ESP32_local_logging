@@ -19,6 +19,8 @@
 #define READNUMBYTES 256
 #define PAYLOADSIZE 16
 
+uint32_t modemID = 0xd3ad1003;
+
 //
 // Data dump list
 // dt(in):Data to dump
@@ -128,7 +130,6 @@ void app_main()
 	// Read 256 byte data from Address=0
 	uint8_t rbuf[READNUMBYTES];    // 取得データ
 
-	uint32_t modemID = 0xd3ad0007;
 	uint8_t modemID_arr[4];
 	memcpy(modemID_arr, &modemID, 4);
 
